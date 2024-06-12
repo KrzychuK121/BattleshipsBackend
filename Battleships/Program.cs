@@ -12,7 +12,8 @@ builder.Services.AddCors(options =>
     {
         options.AddDefaultPolicy(builder =>
             {
-                builder.WithOrigins("http://localhost:3000")
+                builder.WithOrigins("http://localhost:3000/lobby")
+                .WithOrigins("http://localhost:3000")
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials();
@@ -27,10 +28,12 @@ app.UseHttpsRedirection();
 app.UseStaticFiles();
 
 app.UseRouting();
+app.UseCors();
+
 
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<LobbyHub>("/lobbyHub");
+app.MapHub<LobbyHub>("/lobby");
 
 app.Run();
