@@ -128,7 +128,7 @@ namespace Battleships.Hubs
             );
         }
 
-        public async Task SetReady()
+        public async Task SetReady(List<Ship> ships)
         {
             await _semaphoreSlim.WaitAsync();
 
@@ -140,6 +140,7 @@ namespace Battleships.Hubs
                 opponent = GetOpponentBy(Context.ConnectionId);
 
                 currentPlayer.IsReady = true;
+                currentPlayer.Ships = ships;
 
                 Console.WriteLine(
                     $"User {currentPlayer.Nickname} set his ready status to {currentPlayer.IsReady}" +
