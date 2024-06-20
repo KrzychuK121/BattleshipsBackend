@@ -1,6 +1,7 @@
 ﻿using Battleships.Models;
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 
 namespace Battleships.Hubs
 {
@@ -12,6 +13,10 @@ namespace Battleships.Hubs
         public async Task JoinSpecificLobby(PlayerConn connectingPlayer)
         {
             await _semaphoreSlim.WaitAsync();
+
+            Player? currentPlayer = null;
+            Player? opponent = null;
+            
             try { 
                 var group = _connectionGroups.FirstOrDefault(
                     gi => gi.GroupName.Equals(connectingPlayer.ChatConnection)
@@ -53,15 +58,18 @@ namespace Battleships.Hubs
                     return;
                 }
 
+                currentPlayer = new Player {
+                    ConnectionId = Context.ConnectionId,
+                    Nickname = connectingPlayer.Username
+                };
 
                 group.Players.Add(
-                    new Player {
-                        ConnectionId = Context.ConnectionId,
-                        Nickname = connectingPlayer.Username
-                    }
+                    currentPlayer
                 );
 
                 group.MemberCount++;
+
+                opponent = GetOpponentBy(Context.ConnectionId);
             } finally {
                 _semaphoreSlim.Release();
             }
@@ -73,6 +81,22 @@ namespace Battleships.Hubs
                 connectingPlayer.ChatConnection
             );
 
+            Console.WriteLine(
+                $"User {currentPlayer.Nickname} sends his nickname and status info " +
+                (
+                    opponent != null
+                    ? $"to {opponent.Nickname}."
+                    : "but there's no opponent."
+                )
+            );
+
+            if (opponent != null)
+                await SendStatusInfo(
+                    "UpdateOpponentsStatus",
+                    opponent,
+                    currentPlayer
+                );
+
             await Clients.Group(connectingPlayer.ChatConnection)
             .SendAsync(
                 "JoinSpecificLobby",
@@ -82,9 +106,134 @@ namespace Battleships.Hubs
             
         }
 
-        public async Task GetReadyStatus()
+        /**
+         * This method sends status about opponent to the receiver.
+         * 
+         * method - name of method that handles message
+         * receiver - the one that reveives the information
+         * opponent - info about reveicer's opponent
+         * 
+         */
+        private async Task SendStatusInfo(
+            string method,
+            Player receiver,
+            Player opponent
+        )
         {
-            //Clients.Client("").
+            await Clients.Client(receiver.ConnectionId)
+            .SendAsync(
+                method,
+                opponent.Nickname,
+                opponent.IsReady
+            );
+        }
+
+        public async Task SetReady()
+        {
+            await _semaphoreSlim.WaitAsync();
+
+            Player? currentPlayer = null;
+            Player? opponent = null;
+
+            try {
+                currentPlayer = GetPlayerBy(Context.ConnectionId);
+                opponent = GetOpponentBy(Context.ConnectionId);
+
+                currentPlayer.IsReady = true;
+
+                Console.WriteLine(
+                    $"User {currentPlayer.Nickname} set his ready status to {currentPlayer.IsReady}" +
+                    (
+                        opponent != null
+                        ? $" and informs {opponent.Nickname} about it."
+                        : "."
+                    )
+                );
+
+            } finally {
+                _semaphoreSlim.Release();
+            }
+
+            if (opponent != null)
+                await SendStatusInfo(
+                    "UpdateOpponentsStatus",
+                    opponent,
+                    currentPlayer
+                );
+
+        }
+
+        public async Task CheckOpponentsStatus()
+        {
+            await _semaphoreSlim.WaitAsync();
+
+            Player? currentPlayer = null;
+            Player? opponent = null;
+
+            try
+            {
+                currentPlayer = GetPlayerBy(Context.ConnectionId);
+                opponent = GetOpponentBy(Context.ConnectionId);
+
+                Console.WriteLine(
+                    opponent != null
+                    ? $"User {currentPlayer.Nickname} checks {opponent.Nickname} ready status."
+                    : $"User {currentPlayer.Nickname} tried to check opponent ready status but there is no opponent yet."
+                );
+
+            }
+            finally
+            {
+                _semaphoreSlim.Release();
+            }
+
+            if (opponent != null)
+                await SendStatusInfo(
+                    "UpdateOpponentsStatus",
+                    currentPlayer,
+                    opponent
+                );
+        }
+
+        private GroupInfo? GetGroupBy(string ConnectionId)
+        {
+            var group = _connectionGroups.FirstOrDefault(
+                group => group.Players.Any(
+                    player => player.ConnectionId.Equals(ConnectionId)
+                )
+            );
+
+            return group;
+        }
+
+        /**
+         * This method returns player by its ConnectionId.
+         * If IfOpponent is true, the function will return opponent of user
+         * that his connection id is equals to ConnectionId. Otherwise the 
+         * owner of ConnectionId is returned (when IfOpponent is true)
+         * 
+         * ConnectionId - id of player that you want to get
+         * IfOpponent - decides if the player or his opponent should be returned
+         */
+        private Player? GetPlayerBy(string ConnectionId, bool IfOpponent = false)
+        {
+            var group = GetGroupBy(ConnectionId);
+            var player = group != null
+            ? group.Players.FirstOrDefault(
+                player => (
+                    IfOpponent
+                    ? !player.ConnectionId.Equals(ConnectionId)
+                    : player.ConnectionId.Equals(ConnectionId)
+                )
+            )
+            : null;
+
+            return player;
+        }
+
+        private Player? GetOpponentBy(string ConnectionId)
+        {
+            return GetPlayerBy(ConnectionId, true);
         }
     }
 }
