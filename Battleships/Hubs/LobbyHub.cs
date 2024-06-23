@@ -84,7 +84,7 @@ namespace Battleships.Hubs
             );
 
             Console.WriteLine(
-                $"User {currentPlayer.Nickname} sends his nickname and status info " +
+                $"User {currentPlayer.Nickname} sends his nickname and status hittedShip " +
                 (
                     opponent != null
                     ? $"to {opponent.Nickname}."
@@ -150,7 +150,20 @@ namespace Battleships.Hubs
 
                 currentPlayer.IsReady = true;
                 currentPlayer.Ships = ships;
-                group.PlayersShips.Add(Context.ConnectionId, ships);
+
+                group.PlayersShips.Add(Context.ConnectionId, Ship.CopyShips(ships));
+
+                group.PlayersShips[Context.ConnectionId].ForEach(
+                    ship =>
+                    {
+                        Console.WriteLine("--------------------");
+                        Console.WriteLine($"Ship name: {ship.Name}");
+                        ship.BoardFields.ForEach(
+                            field => Console.WriteLine($"\tfield: {field}")
+                        );
+                        Console.WriteLine("--------------------");
+                    }
+                );
 
                 Console.WriteLine(
                     $"User {currentPlayer.Nickname} set his ready status to {currentPlayer.IsReady}" +
@@ -299,6 +312,7 @@ namespace Battleships.Hubs
             Player? sender = null;
             Player? opponent = null;
             GroupInfo? group = null;
+            List<string> eliminatedShipFields = null;
 
             try {
                 sender = GetPlayerBy(Context.ConnectionId);
@@ -322,26 +336,48 @@ namespace Battleships.Hubs
                     )
                 ) {
                     isHitted = true;
-                    Console.WriteLine($"group.PlayersShips[Context.ConnectionId]: {group.PlayersShips[Context.ConnectionId]}");
-                    /*group.PlayersShips[Context.ConnectionId].FirstOrDefault(
-                        ship => ship.BoardFields.Equals(cellId)
-                    ).BoardFields.Remove(cellId);*/
 
-                    // Check if the whole ship is sunken. If yes, send info about it instead of single hitted field
+                    Ship hittedShip = group.PlayersShips[opponent.ConnectionId].First(
+                        ship => ship.BoardFields.Any(
+                            field => field.Equals(cellId)
+                        )
+                    );
+
+                    hittedShip.BoardFields.Remove(cellId);
+
+                    // Checking if the whole ship is sunken. If yes, sending info about it instead of single hitted field
+                    if (hittedShip.BoardFields.Count() == 0) {
+                        eliminatedShipFields = opponent.Ships.First(
+                                ship => ship.Name.Equals(hittedShip.Name)
+                            ).BoardFields;
+                        group.PlayersShips[opponent.ConnectionId].Remove(hittedShip);
+                    }
+                        
                 }
-                    
 
                 // Check after hit if the player won
             } finally {
                 _semaphoreSlim.Release();
             }
 
-            await Clients.Group(group.GroupName).SendAsync(
-                "PlayerShotted",
-                Context.ConnectionId,
-                cellId,
-                isHitted
-            );
+            if (eliminatedShipFields == null)
+                await Clients.Group(group.GroupName).SendAsync(
+                    "PlayerShotted",
+                    Context.ConnectionId,
+                    cellId,
+                    isHitted
+                );
+            else
+            {
+                await Clients.Group(group.GroupName).SendAsync(
+                    "PlayerSunkenShip",
+                    Context.ConnectionId,
+                    eliminatedShipFields
+                );
+
+                Console.WriteLine($"eliminatedShipsFields.Count(): {eliminatedShipFields.Count()}");
+            }
+                
 
             group.PlayerToMove = opponent;
         }
