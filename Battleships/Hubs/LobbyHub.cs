@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Text.RegularExpressions;
 
 namespace Battleships.Hubs
 {
@@ -68,6 +69,7 @@ namespace Battleships.Hubs
                 );
 
                 group.MemberCount++;
+                group.PlayerToMove = currentPlayer;
 
                 opponent = GetOpponentBy(Context.ConnectionId);
             } finally {
@@ -128,19 +130,27 @@ namespace Battleships.Hubs
             );
         }
 
+        private bool isGameStarting(GroupInfo? group)
+        {
+            return group.Players.All(player => player.IsReady) && group.MemberCount == 2;
+        }
+
         public async Task SetReady(List<Ship> ships)
         {
             await _semaphoreSlim.WaitAsync();
 
             Player? currentPlayer = null;
             Player? opponent = null;
+            GroupInfo? group = null;
 
             try {
                 currentPlayer = GetPlayerBy(Context.ConnectionId);
                 opponent = GetOpponentBy(Context.ConnectionId);
+                group = GetGroupBy(Context.ConnectionId);
 
                 currentPlayer.IsReady = true;
                 currentPlayer.Ships = ships;
+                group.PlayersShips.Add(Context.ConnectionId, ships);
 
                 Console.WriteLine(
                     $"User {currentPlayer.Nickname} set his ready status to {currentPlayer.IsReady}" +
@@ -162,6 +172,19 @@ namespace Battleships.Hubs
                     currentPlayer
                 );
 
+            if (isGameStarting(group))
+            {
+                bool isSendersTurn = group.PlayerToMove.ConnectionId.Equals(opponent.ConnectionId);
+                await Clients.Client(opponent.ConnectionId)
+                .SendAsync(
+                    "GetWhosFirstAndGameStatus",
+                    true,
+                    isSendersTurn
+                );
+
+                Console.WriteLine($"SetReady sent to {opponent.Nickname}");
+            }
+
         }
 
         public async Task CheckOpponentsStatus()
@@ -170,6 +193,7 @@ namespace Battleships.Hubs
 
             Player? currentPlayer = null;
             Player? opponent = null;
+            GroupInfo? group = null;
 
             try
             {
@@ -235,6 +259,91 @@ namespace Battleships.Hubs
         private Player? GetOpponentBy(string ConnectionId)
         {
             return GetPlayerBy(ConnectionId, true);
+        }
+
+        public async Task CheckGameStatus()
+        {
+            bool isGameStarting = false;
+            bool isSendersTurn = false;
+
+            GroupInfo? group = null;
+            await _semaphoreSlim.WaitAsync();
+
+            try {
+                group = GetGroupBy(Context.ConnectionId);
+
+                if (group == null)
+                    return;
+
+                isSendersTurn = group.PlayerToMove.ConnectionId.Equals(Context.ConnectionId);
+                isGameStarting = group.Players.All(player => player.IsReady) && group.MemberCount == 2;
+            } finally {
+                _semaphoreSlim.Release();
+            }
+
+            await Clients.Client(Context.ConnectionId)
+            .SendAsync(
+                "GetWhosFirstAndGameStatus",
+                isGameStarting,
+                isSendersTurn
+            );
+
+            Console.WriteLine("CheckGameStatus");
+        }
+
+        public async Task MakeMove(string cellId)
+        {
+            await _semaphoreSlim.WaitAsync();
+
+            var isHitted = false;
+            Player? sender = null;
+            Player? opponent = null;
+            GroupInfo? group = null;
+
+            try {
+                sender = GetPlayerBy(Context.ConnectionId);
+                opponent = GetOpponentBy(Context.ConnectionId);
+                group = GetGroupBy(Context.ConnectionId);
+
+                if (sender == null || opponent == null || group == null)
+                    return;
+
+                if (!sender.ConnectionId.Equals(group.PlayerToMove.ConnectionId))
+                {
+                    Console.WriteLine($"The {sender.Nickname} is trying to make move but it is not his turn.");
+                    return;
+                }
+
+                if (
+                    opponent.Ships.Any(
+                        ship => ship.BoardFields.Any(
+                            field => field.Equals(cellId)
+                        )
+                    )
+                ) {
+                    isHitted = true;
+                    Console.WriteLine($"group.PlayersShips[Context.ConnectionId]: {group.PlayersShips[Context.ConnectionId]}");
+                    /*group.PlayersShips[Context.ConnectionId].FirstOrDefault(
+                        ship => ship.BoardFields.Equals(cellId)
+                    ).BoardFields.Remove(cellId);*/
+
+                    // Check if the whole ship is sunken. If yes, send info about it instead of single hitted field
+                }
+                    
+
+                // Check after hit if the player won
+            } finally {
+                _semaphoreSlim.Release();
+            }
+
+            await Clients.Group(group.GroupName).SendAsync(
+                "PlayerShotted",
+                Context.ConnectionId,
+                cellId,
+                isHitted
+            );
+
+            group.PlayerToMove = opponent;
         }
     }
 }
