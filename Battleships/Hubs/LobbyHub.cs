@@ -108,6 +108,11 @@ namespace Battleships.Hubs
             
         }
 
+        public async Task LeaveSpecificLobby()
+        {
+
+        }
+
         /**
          * This method sends status about opponent to the receiver.
          * 
@@ -152,18 +157,6 @@ namespace Battleships.Hubs
                 currentPlayer.Ships = ships;
 
                 group.PlayersShips.Add(Context.ConnectionId, Ship.CopyShips(ships));
-
-                group.PlayersShips[Context.ConnectionId].ForEach(
-                    ship =>
-                    {
-                        Console.WriteLine("--------------------");
-                        Console.WriteLine($"Ship name: {ship.Name}");
-                        ship.BoardFields.ForEach(
-                            field => Console.WriteLine($"\tfield: {field}")
-                        );
-                        Console.WriteLine("--------------------");
-                    }
-                );
 
                 Console.WriteLine(
                     $"User {currentPlayer.Nickname} set his ready status to {currentPlayer.IsReady}" +
@@ -311,6 +304,7 @@ namespace Battleships.Hubs
             var isHitted = false;
             Player? sender = null;
             Player? opponent = null;
+            Player? winner = null;
             GroupInfo? group = null;
             List<string> eliminatedShipFields = null;
 
@@ -356,6 +350,9 @@ namespace Battleships.Hubs
                 }
 
                 // Check after hit if the player won
+                if (group.PlayersShips[opponent.ConnectionId].Count() == 0)
+                    winner = sender;
+
             } finally {
                 _semaphoreSlim.Release();
             }
@@ -368,16 +365,19 @@ namespace Battleships.Hubs
                     isHitted
                 );
             else
-            {
                 await Clients.Group(group.GroupName).SendAsync(
                     "PlayerSunkenShip",
                     Context.ConnectionId,
                     eliminatedShipFields
                 );
 
-                Console.WriteLine($"eliminatedShipsFields.Count(): {eliminatedShipFields.Count()}");
-            }
-                
+
+            if (winner != null)
+                await Clients.Group(group.GroupName).SendAsync(
+                    "PlayerWon",
+                    winner.ConnectionId,
+                    winner.Nickname
+                );
 
             group.PlayerToMove = opponent;
         }
