@@ -69,7 +69,6 @@ namespace Battleships.Hubs
                 );
 
                 group.MemberCount++;
-                group.PlayerToMove = currentPlayer;
 
                 opponent = GetOpponentBy(Context.ConnectionId);
             } finally {
@@ -110,7 +109,36 @@ namespace Battleships.Hubs
 
         public async Task LeaveSpecificLobby()
         {
+            await _semaphoreSlim.WaitAsync();
 
+            GroupInfo? group = null;
+            Player? sender = null;
+
+            try {
+                group = GetGroupBy(Context.ConnectionId);
+                sender = GetPlayerBy(Context.ConnectionId);
+
+                if (group == null || sender == null)
+                    return;
+
+                // When last player in group just remove the group
+                if (group.MemberCount == 1) {
+                    _connectionGroups.Remove(group);
+                    Console.WriteLine($"Group {group.GroupName} was removed from server because all players left it.");
+                } else {
+                    // When not last player, remove him from group
+                    group.PlayersShips.Remove(sender.ConnectionId);
+                    group.MemberCount--;
+                    group.Players.Remove(sender);
+
+                    Console.WriteLine($"Player {sender.Nickname} was removed from {group.GroupName} lobby.");
+                }
+
+                await Groups.RemoveFromGroupAsync(sender.ConnectionId, group.GroupName);
+
+            } finally {
+                _semaphoreSlim.Release();
+            }
         }
 
         /**
@@ -153,8 +181,13 @@ namespace Battleships.Hubs
                 opponent = GetOpponentBy(Context.ConnectionId);
                 group = GetGroupBy(Context.ConnectionId);
 
+                if (currentPlayer == null || group == null)
+                    return;
+
                 currentPlayer.IsReady = true;
                 currentPlayer.Ships = ships;
+                if(group.PlayerToMove == null)
+                    group.PlayerToMove = currentPlayer;
 
                 group.PlayersShips.Add(Context.ConnectionId, Ship.CopyShips(ships));
 
@@ -205,6 +238,9 @@ namespace Battleships.Hubs
             {
                 currentPlayer = GetPlayerBy(Context.ConnectionId);
                 opponent = GetOpponentBy(Context.ConnectionId);
+
+                if (currentPlayer == null)
+                    return;
 
                 Console.WriteLine(
                     opponent != null
@@ -269,7 +305,6 @@ namespace Battleships.Hubs
 
         public async Task CheckGameStatus()
         {
-            bool isGameStarting = false;
             bool isSendersTurn = false;
 
             GroupInfo? group = null;
@@ -282,7 +317,6 @@ namespace Battleships.Hubs
                     return;
 
                 isSendersTurn = group.PlayerToMove.ConnectionId.Equals(Context.ConnectionId);
-                isGameStarting = group.Players.All(player => player.IsReady) && group.MemberCount == 2;
             } finally {
                 _semaphoreSlim.Release();
             }
@@ -290,7 +324,7 @@ namespace Battleships.Hubs
             await Clients.Client(Context.ConnectionId)
             .SendAsync(
                 "GetWhosFirstAndGameStatus",
-                isGameStarting,
+                isGameStarting(group),
                 isSendersTurn
             );
 
