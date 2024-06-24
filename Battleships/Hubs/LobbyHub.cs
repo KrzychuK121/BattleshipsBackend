@@ -84,7 +84,7 @@ namespace Battleships.Hubs
             );
 
             Console.WriteLine(
-                $"User {currentPlayer.Nickname} sends his nickname and status hittedShip " +
+                $"User {currentPlayer.Nickname} sends his nickname and status " +
                 (
                     opponent != null
                     ? $"to {opponent.Nickname}."
