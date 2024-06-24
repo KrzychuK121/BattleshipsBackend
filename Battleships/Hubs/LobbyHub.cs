@@ -67,56 +67,52 @@ namespace Battleships.Hubs
                 group.Players.Add(
                     currentPlayer
                 );
-
                 group.MemberCount++;
 
                 opponent = GetOpponentBy(Context.ConnectionId);
+
+                await Clients.Client(Context.ConnectionId).SendAsync("JoinSuccessHandler");
+
+                await Groups.AddToGroupAsync(
+                    Context.ConnectionId,
+                    connectingPlayer.ChatConnection
+                );
+
+                Console.WriteLine(
+                    $"User {currentPlayer.Nickname} sends his nickname and status " +
+                    (
+                        opponent != null
+                        ? $"to {opponent.Nickname}."
+                        : "but there's no opponent."
+                    )
+                );
+
+                if (opponent != null)
+                    await SendStatusInfo(
+                        "UpdateOpponentsStatus",
+                        opponent,
+                        currentPlayer
+                    );
+
+                await Clients.Group(connectingPlayer.ChatConnection)
+                .SendAsync(
+                    "JoinSpecificLobby",
+                    "admin",
+                    $"user {connectingPlayer.Username} has joined with Context.ConnectionId {Context.ConnectionId}."
+                );
+
             } finally {
                 _semaphoreSlim.Release();
             }
-
-            await Clients.Client(Context.ConnectionId).SendAsync("JoinSuccessHandler");
-
-            await Groups.AddToGroupAsync(
-                Context.ConnectionId,
-                connectingPlayer.ChatConnection
-            );
-
-            Console.WriteLine(
-                $"User {currentPlayer.Nickname} sends his nickname and status " +
-                (
-                    opponent != null
-                    ? $"to {opponent.Nickname}."
-                    : "but there's no opponent."
-                )
-            );
-
-            if (opponent != null)
-                await SendStatusInfo(
-                    "UpdateOpponentsStatus",
-                    opponent,
-                    currentPlayer
-                );
-
-            await Clients.Group(connectingPlayer.ChatConnection)
-            .SendAsync(
-                "JoinSpecificLobby",
-                "admin",
-                $"user {connectingPlayer.Username} has joined with Context.ConnectionId {Context.ConnectionId}."
-            );
-            
         }
 
         public async Task LeaveSpecificLobby()
         {
             await _semaphoreSlim.WaitAsync();
 
-            GroupInfo? group = null;
-            Player? sender = null;
-
             try {
-                group = GetGroupBy(Context.ConnectionId);
-                sender = GetPlayerBy(Context.ConnectionId);
+                GroupInfo? group = GetGroupBy(Context.ConnectionId);
+                Player? sender = GetPlayerBy(Context.ConnectionId);
 
                 if (group == null || sender == null)
                     return;
@@ -171,15 +167,10 @@ namespace Battleships.Hubs
         public async Task SetReady(List<Ship> ships)
         {
             await _semaphoreSlim.WaitAsync();
-
-            Player? currentPlayer = null;
-            Player? opponent = null;
-            GroupInfo? group = null;
-
             try {
-                currentPlayer = GetPlayerBy(Context.ConnectionId);
-                opponent = GetOpponentBy(Context.ConnectionId);
-                group = GetGroupBy(Context.ConnectionId);
+                Player? currentPlayer = GetPlayerBy(Context.ConnectionId);
+                Player? opponent = GetOpponentBy(Context.ConnectionId);
+                GroupInfo? group = GetGroupBy(Context.ConnectionId);
 
                 if (currentPlayer == null || group == null)
                     return;
@@ -200,44 +191,38 @@ namespace Battleships.Hubs
                     )
                 );
 
+                if (opponent != null)
+                    await SendStatusInfo(
+                        "UpdateOpponentsStatus",
+                        opponent,
+                        currentPlayer
+                    );
+
+                if (isGameStarting(group))
+                {
+                    bool isSendersTurn = group.PlayerToMove.ConnectionId.Equals(opponent.ConnectionId);
+                    await Clients.Client(opponent.ConnectionId)
+                    .SendAsync(
+                        "GetWhosFirstAndGameStatus",
+                        true,
+                        isSendersTurn
+                    );
+
+                    Console.WriteLine($"SetReady sent to {opponent.Nickname}");
+                }
+
             } finally {
                 _semaphoreSlim.Release();
             }
-
-            if (opponent != null)
-                await SendStatusInfo(
-                    "UpdateOpponentsStatus",
-                    opponent,
-                    currentPlayer
-                );
-
-            if (isGameStarting(group))
-            {
-                bool isSendersTurn = group.PlayerToMove.ConnectionId.Equals(opponent.ConnectionId);
-                await Clients.Client(opponent.ConnectionId)
-                .SendAsync(
-                    "GetWhosFirstAndGameStatus",
-                    true,
-                    isSendersTurn
-                );
-
-                Console.WriteLine($"SetReady sent to {opponent.Nickname}");
-            }
-
         }
 
         public async Task CheckOpponentsStatus()
         {
             await _semaphoreSlim.WaitAsync();
-
-            Player? currentPlayer = null;
-            Player? opponent = null;
-            GroupInfo? group = null;
-
             try
             {
-                currentPlayer = GetPlayerBy(Context.ConnectionId);
-                opponent = GetOpponentBy(Context.ConnectionId);
+                Player? currentPlayer = GetPlayerBy(Context.ConnectionId);
+                Player? opponent = GetOpponentBy(Context.ConnectionId);
 
                 if (currentPlayer == null)
                     return;
@@ -248,18 +233,18 @@ namespace Battleships.Hubs
                     : $"User {currentPlayer.Nickname} tried to check opponent ready status but there is no opponent yet."
                 );
 
+                if (opponent != null)
+                    await SendStatusInfo(
+                        "UpdateOpponentsStatus",
+                        currentPlayer,
+                        opponent
+                    );
+
             }
             finally
             {
                 _semaphoreSlim.Release();
             }
-
-            if (opponent != null)
-                await SendStatusInfo(
-                    "UpdateOpponentsStatus",
-                    currentPlayer,
-                    opponent
-                );
         }
 
         private GroupInfo? GetGroupBy(string ConnectionId)
@@ -305,47 +290,37 @@ namespace Battleships.Hubs
 
         public async Task CheckGameStatus()
         {
-            bool isSendersTurn = false;
-
-            GroupInfo? group = null;
             await _semaphoreSlim.WaitAsync();
-
             try {
-                group = GetGroupBy(Context.ConnectionId);
+                bool isSendersTurn = false;
+                GroupInfo? group = GetGroupBy(Context.ConnectionId);
 
                 if (group == null)
                     return;
 
                 isSendersTurn = group.PlayerToMove.ConnectionId.Equals(Context.ConnectionId);
+
+                await Clients.Client(Context.ConnectionId)
+                .SendAsync(
+                    "GetWhosFirstAndGameStatus",
+                    isGameStarting(group),
+                    isSendersTurn
+                );
             } finally {
                 _semaphoreSlim.Release();
-            }
-
-            await Clients.Client(Context.ConnectionId)
-            .SendAsync(
-                "GetWhosFirstAndGameStatus",
-                isGameStarting(group),
-                isSendersTurn
-            );
-
-            Console.WriteLine("CheckGameStatus");
+            }            
         }
 
         public async Task MakeMove(string cellId)
         {
             await _semaphoreSlim.WaitAsync();
-
-            var isHitted = false;
-            Player? sender = null;
-            Player? opponent = null;
-            Player? winner = null;
-            GroupInfo? group = null;
-            List<string> eliminatedShipFields = null;
-
             try {
-                sender = GetPlayerBy(Context.ConnectionId);
-                opponent = GetOpponentBy(Context.ConnectionId);
-                group = GetGroupBy(Context.ConnectionId);
+                Player? sender = GetPlayerBy(Context.ConnectionId);
+                Player? opponent = GetOpponentBy(Context.ConnectionId);
+                Player? winner = null;
+                GroupInfo? group = GetGroupBy(Context.ConnectionId);
+                var isHitted = false;
+                List<string> eliminatedShipFields = null;
 
                 if (sender == null || opponent == null || group == null)
                     return;
@@ -387,33 +362,33 @@ namespace Battleships.Hubs
                 if (group.PlayersShips[opponent.ConnectionId].Count() == 0)
                     winner = sender;
 
+                if (eliminatedShipFields == null)
+                    await Clients.Group(group.GroupName).SendAsync(
+                        "PlayerShotted",
+                        Context.ConnectionId,
+                        cellId,
+                        isHitted
+                    );
+                else
+                    await Clients.Group(group.GroupName).SendAsync(
+                        "PlayerSunkenShip",
+                        Context.ConnectionId,
+                        eliminatedShipFields
+                    );
+
+
+                if (winner != null)
+                    await Clients.Group(group.GroupName).SendAsync(
+                        "PlayerWon",
+                        winner.ConnectionId,
+                        winner.Nickname
+                    );
+
+                group.PlayerToMove = opponent;
+
             } finally {
                 _semaphoreSlim.Release();
             }
-
-            if (eliminatedShipFields == null)
-                await Clients.Group(group.GroupName).SendAsync(
-                    "PlayerShotted",
-                    Context.ConnectionId,
-                    cellId,
-                    isHitted
-                );
-            else
-                await Clients.Group(group.GroupName).SendAsync(
-                    "PlayerSunkenShip",
-                    Context.ConnectionId,
-                    eliminatedShipFields
-                );
-
-
-            if (winner != null)
-                await Clients.Group(group.GroupName).SendAsync(
-                    "PlayerWon",
-                    winner.ConnectionId,
-                    winner.Nickname
-                );
-
-            group.PlayerToMove = opponent;
         }
     }
 }
