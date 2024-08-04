@@ -13,5 +13,5 @@ This game has frontend and backed separated into two different GitHub repositori
 1. Download [backend](https://github.com/KrzychuK121/BattleshipsBackend)
 2. Run backend application and check running address
 3. Download [frontend](https://github.com/KrzychuK121/BattleshipsFrontend)
-4. Run frontend application and make sure that in `src/HubProvider/HubProvider.jsx` you have defined the same address as address from 2. step
+4. Run frontend application by typing `npm start` in the console. Make sure that in `src/HubProvider/HubProvider.jsx` you have defined the same address as address from 2. step
 5. Enjoy the game
