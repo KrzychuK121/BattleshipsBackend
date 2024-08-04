@@ -6,7 +6,7 @@ This is backend for "Battleships" game. It is responsible for managing lobbies t
 ## Getting started
 Everything you have to do is to download this project and run the application. 
 
-If you have any problem with running this application it can be due to CSRF. It that's the case, you have to make sure that `BattleshipsFrontend` has the same address as your currently working backend.
+If you have any problem with running this application it can be due to CSRF. If that's the case, you have to make sure that [`BattleshipsFrontend`](https://github.com/KrzychuK121/BattleshipsFrontend) has the same address as your currently working backend (you can localize this declaration in `src/HubProvider/HubProvider.jsx`).
 
 ## Full project guide
 This game has frontend and backed separated into two different GitHub repositories. To run and test the application you should follow these steps:
